@@ -1,0 +1,3 @@
+voyageai
+numpy
+python-dotenv
