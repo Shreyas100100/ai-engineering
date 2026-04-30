@@ -59,7 +59,7 @@ def generate(query,top_k=1):
     )    
     return response.text
 
-result = generate("What to do in bangalore?")
+result = generate("Which is the best Biryani and why?")
 # print query and result
-print(f"Query: What to do in bangalore?")
+print(f"Query: Which is the best Biryani and why?")
 print(f"Answer: {result}")
