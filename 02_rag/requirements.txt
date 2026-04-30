@@ -1,0 +1,4 @@
+voyageai
+numpy
+python-dotenv
+google-genai
