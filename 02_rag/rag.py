@@ -29,6 +29,18 @@ documents = [
     "Nothing beats a hot filter coffee on a rainy Monday morning in Bangalore",
 ]
   
+EMBEDDINGS_FILE = "embeddings.npy"
+
+if os.path.exists(EMBEDDINGS_FILE):
+    print("Loading embeddings from cache...")
+    doc_embds = np.load(EMBEDDINGS_FILE)
+else:
+    print("Generating embeddings for documents...")
+    doc_embds = vo.embed(documents, model="voyage-4-lite", input_type="document").embeddings
+    np.save(EMBEDDINGS_FILE, doc_embds)
+    print("Embeddings saved to cache.")
+
+
 def cosine_similarity(vecA, vecB):
     return np.dot(vecA, vecB) / (np.linalg.norm(vecA) * np.linalg.norm(vecB))
  
