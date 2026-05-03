@@ -1,0 +1,69 @@
+Backend Engineering: Principles, Patterns, and Performance
+
+Chapter 1: Database Fundamentals
+
+Databases are the backbone of almost every production system. Understanding how they work internally is essential for any backend engineer who wants to build systems that scale.
+
+Indexing is one of the most powerful tools available to a database engineer. When you query a table without an index, the database performs a full table scan — it reads every single row to find the ones that match your condition. On a table with a million rows, this is catastrophically slow. An index is a separate data structure, usually a B-tree, that allows the database to find rows in logarithmic time instead of linear time. The tradeoff is that indexes slow down writes, because every insert or update must also update the index.
+
+Primary keys are automatically indexed in most databases. But foreign keys are not — and this is a mistake many junior engineers make. If you have an orders table with a user_id foreign key and you frequently query orders by user, you must create an index on user_id manually. Without it, every join becomes a full table scan.
+
+Composite indexes are indexes on multiple columns. The order of columns in a composite index matters enormously. An index on (user_id, created_at) can serve queries that filter by user_id alone, or by both user_id and created_at. But it cannot efficiently serve queries that filter only by created_at. This is called the leftmost prefix rule.
+
+Database normalization is the process of organizing tables to reduce data redundancy. First normal form requires that every column contains atomic values. Second normal form requires that every non-key column depends on the entire primary key. Third normal form requires that non-key columns do not depend on other non-key columns. Normalization is good for write-heavy workloads because data is stored in one place. But for read-heavy workloads, joins across many normalized tables can hurt performance, which is why many systems deliberately denormalize for read replicas or analytics.
+
+Transactions ensure that a group of operations either all succeed or all fail together. The ACID properties define what a reliable transaction looks like. Atomicity means the transaction is all-or-nothing. Consistency means the database moves from one valid state to another. Isolation means concurrent transactions do not interfere with each other. Durability means once a transaction is committed, it survives crashes. Achieving all four properties simultaneously is expensive, which is why some systems offer weaker guarantees for better performance.
+
+Connection pooling is critical for any production application. Opening a new database connection is expensive — it involves a TCP handshake, authentication, and memory allocation on the database server. If your application opens a new connection for every request and you have 500 concurrent users, you will exhaust your database's connection limit almost immediately. A connection pool maintains a set of open connections and hands them out to threads as needed. Spring Boot with HikariCP does this automatically, but you must configure the pool size correctly. Too small and threads wait for connections. Too large and you overwhelm the database.
+
+Chapter 2: Caching Strategies
+
+Caching is the practice of storing a copy of data in a faster storage layer to avoid recomputing or re-fetching it. Done well, caching is one of the highest-leverage optimizations available. Done poorly, it introduces bugs that are extremely hard to debug.
+
+Redis is the most widely used caching layer in backend systems. It stores data in memory, which makes reads and writes orders of magnitude faster than a disk-backed database. A typical PostgreSQL query might take 20-100 milliseconds. The same data served from Redis takes under 1 millisecond. For read-heavy endpoints that serve the same data to many users, this difference is transformative.
+
+The cache-aside pattern is the most common caching strategy. The application first checks the cache. If the data is there, it returns it. If not, it fetches from the database, stores the result in the cache, and returns it. This is simple and works well for most use cases. The risk is a cold start — when the cache is empty, every request hits the database simultaneously, which can overwhelm it. This is called a cache stampede.
+
+Cache invalidation is famously one of the hardest problems in computer science. When the underlying data changes, the cached copy becomes stale. There are three main approaches. Time-based expiration sets a TTL on every cached value — after N seconds, the entry is deleted and the next request fetches fresh data. Event-based invalidation explicitly deletes or updates cache entries when the data changes. Write-through caching updates the cache and the database simultaneously on every write. Each approach has tradeoffs between consistency, complexity, and performance.
+
+Cache eviction policies decide what to remove when the cache is full. LRU (Least Recently Used) removes the entry that was accessed least recently. LFU (Least Frequently Used) removes the entry that was accessed fewest times. Redis supports both. Choosing the wrong policy for your access pattern wastes cache space and reduces hit rate.
+
+Chapter 3: API Design
+
+A well-designed API is a joy to work with. A poorly designed one becomes a maintenance burden that haunts a team for years.
+
+REST (Representational State Transfer) is an architectural style for building APIs over HTTP. Resources are identified by URLs. HTTP methods define the operation — GET for reading, POST for creating, PUT or PATCH for updating, DELETE for removing. A RESTful API should be stateless — each request contains all the information needed to process it, and the server stores no session state between requests.
+
+Pagination is non-negotiable when returning collections of data. Returning all records from a table with a million rows in a single response will time out, run out of memory, or simply return a response so large the client cannot handle it. Offset-based pagination uses a page number and page size. Cursor-based pagination uses a pointer to the last seen item and is more efficient for large datasets because it does not require counting skipped rows.
+
+HTTP status codes communicate the result of a request. 200 means success. 201 means a resource was created. 400 means the client sent a bad request. 401 means authentication is required. 403 means the client is authenticated but not authorized. 404 means the resource was not found. 500 means something went wrong on the server. Using status codes correctly is important — returning 200 with an error message in the body is a common mistake that makes API consumers' lives harder.
+
+Rate limiting protects your API from abuse and accidental overload. A rate limiter tracks how many requests a client has made in a time window and rejects requests that exceed the limit. Token bucket and sliding window are two common algorithms. Rate limits should be communicated clearly — return a 429 status code with headers indicating the limit, the current usage, and when the window resets.
+
+Versioning your API from day one avoids painful migrations later. Once an API is public, changing its contract breaks all existing clients. The two most common approaches are URL versioning (api/v1/users) and header versioning (Accept: application/vnd.myapi.v1+json). URL versioning is simpler and more visible.
+
+Chapter 4: Microservices and System Design
+
+The move from monolith to microservices is one of the most discussed architectural decisions in modern backend engineering. It is also one of the most frequently misunderstood.
+
+A monolith is a single deployable unit that contains all of an application's functionality. All modules share the same process, memory, and database. Monoliths are simpler to develop, test, and deploy in the early stages of a product. Transactions span the entire system trivially. Debugging is straightforward because all logs are in one place.
+
+Microservices split functionality into separate services that communicate over a network. Each service is independently deployable, can be scaled independently, and can be written in a different language. The benefits become real at scale — when teams are large enough that multiple groups working in the same codebase create bottlenecks, or when different parts of the system have dramatically different scaling requirements.
+
+The costs of microservices are often underestimated. Network calls are slower and less reliable than in-process function calls. Distributed transactions are extremely hard to implement correctly. Debugging requires correlating logs across multiple services. Deploying and monitoring dozens of services requires significant infrastructure investment. Many teams adopt microservices prematurely and spend more time managing infrastructure than building product.
+
+Service communication patterns fall into two broad categories. Synchronous communication, typically via HTTP or gRPC, means the calling service waits for a response before continuing. This is simple but creates coupling — if the downstream service is slow or unavailable, the upstream service is affected. Asynchronous communication via message queues like Kafka or RabbitMQ decouples services — the sender publishes a message and continues without waiting. This improves resilience but introduces complexity around message ordering, deduplication, and failure handling.
+
+Chapter 5: Performance and Observability
+
+A system that works correctly but slowly is a system that will eventually fail its users. Performance must be measured, not guessed.
+
+Latency is the time it takes to process a single request. Throughput is the number of requests a system can handle per unit of time. These two metrics often trade off against each other. A system optimized purely for throughput may batch work in ways that increase latency for individual requests.
+
+The p99 latency is more important than the average. If your average response time is 50ms but your p99 is 2 seconds, one in every hundred users is having a terrible experience. Outliers matter because they affect real users. Always look at percentile distributions, not just averages.
+
+Distributed tracing allows you to follow a single request as it travels through multiple services. Each service adds a span to the trace, recording what it did and how long it took. Tools like Jaeger and Zipkin collect and visualize these traces. Without tracing, debugging latency issues in a microservices system is nearly impossible.
+
+Structured logging means emitting logs as JSON objects with consistent fields rather than free-form strings. A structured log entry might include a timestamp, log level, service name, request ID, user ID, and message. This makes logs searchable and filterable in tools like Elasticsearch or CloudWatch. Free-form log strings are useless at scale.
+
+Alerts should be based on symptoms, not causes. Alert when user-facing error rates spike or latency increases, not when CPU usage is high. High CPU might not affect users at all. An error rate spike always does. This principle is called symptom-based alerting and is central to modern site reliability engineering.
