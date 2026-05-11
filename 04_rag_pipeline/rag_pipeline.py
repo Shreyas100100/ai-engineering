@@ -1,16 +1,13 @@
-from google import genai
+import cohere
 import numpy as np
 import os
 import time
 from dotenv import load_dotenv
 
 load_dotenv()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-
-
-# --- Chunking ---
+co = cohere.Client(COHERE_API_KEY)
 
 def sentence_boundary_chunks(text, chunk_size=500):
     sentences = text.split(". ")
@@ -25,60 +22,61 @@ def sentence_boundary_chunks(text, chunk_size=500):
     chunks.append(current_chunk.strip())
     return chunks
 
-
-# --- Embedding ---
-
 def embed_chunks(chunks):
     embeddings = []
-    for i, chunk in enumerate(chunks):
-        chunk_embedding = gemini_client.models.embed_content(
-            model="gemini-embedding-2", contents=chunk
-        ).embeddings[0].values
-        embeddings.append(chunk_embedding)
-        if (i + 1) % 90 == 0:
-            print(f"  Embedded {i + 1}/{len(chunks)} chunks, pausing to avoid rate limit...")
-            time.sleep(62)
+    batch_size = 90
+
+    for i in range(0, len(chunks), batch_size):
+        batch = chunks[i:i + batch_size]
+        print(f"  Embedding batch {i // batch_size + 1} ({len(batch)} chunks)...")
+
+        response = co.embed(
+            model="embed-english-v3.0",
+            texts=batch,
+            input_type="search_document",
+            truncate="END"
+        )
+        embeddings.extend(response.embeddings)
+
+        if i + batch_size < len(chunks):
+            time.sleep(2)
+
     return embeddings
 
 
-# --- Search ---
+def embed_query(query):
+    response = co.embed(
+        model="embed-english-v3.0",
+        texts=[query],
+        input_type="search_query",
+        truncate="END"
+    )
+    return response.embeddings[0]
+
 
 def cosine_similarity(vecA, vecB):
     return np.dot(vecA, vecB) / (np.linalg.norm(vecA) * np.linalg.norm(vecB))
 
 
 def search(query, chunks, chunk_embeddings, top_k=3):
-    query_embedding = gemini_client.models.embed_content(
-        model="gemini-embedding-2", contents=query
-    ).embeddings[0].values
+    query_embedding = embed_query(query)
     similarities = [cosine_similarity(query_embedding, emb) for emb in chunk_embeddings]
     ranked_indices = np.argsort(similarities)[::-1][:top_k]
     return ranked_indices
 
-
-# --- Generate ---
-
-def build_prompt(query, context):
-    return f"""You are a helpful assistant. Answer the question based on the context below.
-
-Context:
-{context}
-
-Question: {query}"""
-
-
-def generate(query, chunks, chunk_embeddings, top_k=1):
+def generate(query, chunks, chunk_embeddings, top_k=3):
     ranked_indices = search(query, chunks, chunk_embeddings, top_k=top_k)
-    context = "\n".join([chunks[i] for i in ranked_indices])
-    prompt = build_prompt(query, context)
-    response = gemini_client.models.generate_content(
-        model="gemini-2.0-flash-lite",
-        contents=prompt
+    
+    documents = [{"text": chunks[i]} for i in ranked_indices]
+
+    response = co.chat(
+        model="command-a-03-2025",
+        message=query,
+        documents=documents,
+        temperature=0.3
     )
     return response.text
 
-
-# --- Main ---
 
 with open("julius_ceaser.txt", "r", encoding="utf-8") as f:
     text = f.read()
@@ -94,12 +92,12 @@ if os.path.exists(EMBEDDINGS_FILE):
     print("Loading embeddings from cache...")
     chunk_embeddings = np.load(EMBEDDINGS_FILE)
 else:
-    print("Embedding chunks...")
+    print("Embedding chunks with Cohere...")
     chunk_embeddings = embed_chunks(chunks)
     np.save(EMBEDDINGS_FILE, chunk_embeddings)
     print("Embeddings saved to cache.")
 
-query = "Why was Julius Caesar assassinated?"
+query = "Why was Julius Caesar said et tu brute and to whom was he referring to?"
 print(f"\nQuery: {query}")
-answer = generate(query, chunks, chunk_embeddings, top_k=1)
+answer = generate(query, chunks, chunk_embeddings, top_k=3)
 print(f"Answer: {answer}")
